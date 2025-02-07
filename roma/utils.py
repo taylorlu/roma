@@ -223,6 +223,14 @@ def quat_normalize(quat):
     """
     return quat / roma.internal.norm(quat, dim=-1, keepdim=True)
 
+def custom_cross(a, b):
+    c = torch.empty_like(a)
+    
+    c[..., 0] = a[..., 1] * b[..., 2] - a[..., 2] * b[..., 1]
+    c[..., 1] = a[..., 2] * b[..., 0] - a[..., 0] * b[..., 2]
+    c[..., 2] = a[..., 0] * b[..., 1] - a[..., 1] * b[..., 0]
+    return c
+
 def quat_product(p, q):
     """
     Returns the product of two quaternions.
@@ -244,9 +252,10 @@ def quat_product(p, q):
     #                   torch.cross(p[..., :3], q[..., :3], dim=-1))
     
     vector = (p[..., None, 3] * q[..., :3] + q[..., None, 3] * p[..., :3] +
-                      torch.cross(p[..., :3], q[..., :3], dim=-1))
-    last = p[..., 3] * q[..., 3] - torch.sum(p[..., :3] * q[..., :3], axis=-1)
-    return torch.cat((vector, last[...,None]), dim=-1)
+                      custom_cross(p[..., :3], q[..., :3]))
+    last = p[..., 3] * q[..., 3] - torch.sum(p[..., :3] * q[..., :3], dim=-1)
+
+    return torch.cat((vector, last.unsqueeze(-1)), dim=-1)
 
 def quat_composition(sequence, normalize = False):
     """

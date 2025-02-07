@@ -341,27 +341,38 @@ def rotmat_to_unitquat(R):
     # https://github.com/scipy/scipy/blob/7cb3d751756907238996502b92709dc45e1c6596/scipy/spatial/transform/rotation.py#L480
 
     decision_matrix = torch.empty((num_rotations, 4), dtype=matrix.dtype, device=matrix.device)
-    decision_matrix[:, :3] = matrix.diagonal(dim1=1, dim2=2)
-    decision_matrix[:, -1] = decision_matrix[:, :3].sum(axis=1)
-    choices = decision_matrix.argmax(axis=1)
+    batch_size, rows, cols = matrix.shape
+    indices = torch.arange(rows)
+    decision_matrix[:, :3] = matrix[:, indices, indices]
+    # decision_matrix[:, :3] = matrix.diagonal(dim1=1, dim2=2)
+    decision_matrix[:, -1] = decision_matrix[:, :3].sum(dim=1)
+    choices = decision_matrix.argmax(dim=1)
 
-    quat = torch.empty((num_rotations, 4), dtype=matrix.dtype, device=matrix.device)
+    quat1 = torch.empty((num_rotations, 4), dtype=matrix.dtype, device=matrix.device)
+    quat2 = torch.empty((num_rotations, 4), dtype=matrix.dtype, device=matrix.device)
 
-    ind = torch.nonzero(choices != 3, as_tuple=True)[0]
-    i = choices[ind]
+    # ind = torch.nonzero(choices != 3, as_tuple=True)[0]
+    ind = torch.arange(choices.size(0)).to(choices.device)
+
+    i = torch.clamp(choices, max=2)
     j = (i + 1) % 3
     k = (j + 1) % 3
 
-    quat[ind, i] = 1 - decision_matrix[ind, -1] + 2 * matrix[ind, i, i]
-    quat[ind, j] = matrix[ind, j, i] + matrix[ind, i, j]
-    quat[ind, k] = matrix[ind, k, i] + matrix[ind, i, k]
-    quat[ind, 3] = matrix[ind, k, j] - matrix[ind, j, k]
+    quat1[ind, i] = 1 - decision_matrix[ind, -1] + 2 * matrix[ind, i, i]
+    quat1[ind, j] = matrix[ind, j, i] + matrix[ind, i, j]
+    quat1[ind, k] = matrix[ind, k, i] + matrix[ind, i, k]
+    quat1[ind, 3] = matrix[ind, k, j] - matrix[ind, j, k]
 
-    ind = torch.nonzero(choices == 3, as_tuple=True)[0]
-    quat[ind, 0] = matrix[ind, 2, 1] - matrix[ind, 1, 2]
-    quat[ind, 1] = matrix[ind, 0, 2] - matrix[ind, 2, 0]
-    quat[ind, 2] = matrix[ind, 1, 0] - matrix[ind, 0, 1]
-    quat[ind, 3] = 1 + decision_matrix[ind, -1]
+    # ind = torch.nonzero(choices == 3, as_tuple=True)[0]
+    ind = torch.arange(choices.size(0)).to(choices.device)
+
+    quat2[ind, 0] = matrix[ind, 2, 1] - matrix[ind, 1, 2]
+    quat2[ind, 1] = matrix[ind, 0, 2] - matrix[ind, 2, 0]
+    quat2[ind, 2] = matrix[ind, 1, 0] - matrix[ind, 0, 1]
+    quat2[ind, 3] = 1 + decision_matrix[ind, -1]
+
+    mask = (choices != 3).to(torch.float32)[:, None]
+    quat = quat1 * mask + quat2 * (1 - mask)
 
     quat = quat / torch.norm(quat, dim=1)[:, None]
     return roma.internal.unflatten_batch_dims(quat, batch_shape)
@@ -438,7 +449,7 @@ def quat_xyzw_to_wxyz(xyzw):
         batch of quaternions (...x4 tensor, WXYZ convention).
     """
     assert xyzw.shape[-1] == 4
-    return torch.cat((xyzw[...,-1,None], xyzw[...,:-1]), dim=-1)
+    return torch.cat((xyzw[...,-1:], xyzw[...,:-1]), dim=-1)
 
 def quat_wxyz_to_xyzw(wxyz):
     """
@@ -450,4 +461,4 @@ def quat_wxyz_to_xyzw(wxyz):
         batch of quaternions (...x4 tensor, XYZW convention).
     """
     assert wxyz.shape[-1] == 4
-    return torch.cat((wxyz[...,1:], wxyz[...,0,None]), dim=-1)
+    return torch.cat((wxyz[...,1:], wxyz[...,:1]), dim=-1)
